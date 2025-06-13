@@ -1,0 +1,89 @@
+#include <16F877A.h>
+#fuses XT,NOWDT,NOPUT,NOBROWNOUT,NOLVP
+#use delay(clock=20000000)
+
+#define LCD_ENABLE_PIN PIN_D2
+#define LCD_RS_PIN     PIN_D0
+#define LCD_RW_PIN     PIN_D1
+#define LCD_DATA4      PIN_D3
+#define LCD_DATA5      PIN_D4
+#define LCD_DATA6      PIN_D5
+#define LCD_DATA7      PIN_D6
+
+#define DHT11_PIN PIN_A0
+
+#define LED_PIN   PIN_C0   // LED ? chân RC0
+
+#include <lcd.c>
+
+unsigned int8 humidity, temperature, checksum;
+
+// Hàm kh?i đ?ng giao ti?p v?i DHT11
+int1 DHT11_Start(){
+   output_low(DHT11_PIN);
+   delay_ms(20);
+   output_float(DHT11_PIN);
+   delay_us(40);
+
+   if(input(DHT11_PIN)) return 0;
+   delay_us(80);
+   if(!input(DHT11_PIN)) return 0;
+   delay_us(80);
+   return 1;
+}
+
+// Hàm đ?c 1 byte t? DHT11
+unsigned int8 DHT11_Read(){
+   unsigned int8 i, result=0;
+   for(i=0;i<8;i++){
+      while(!input(DHT11_PIN));    // đ?i lên cao
+      delay_us(30);
+      if(input(DHT11_PIN)) result |= (1<<(7-i)); // n?u c?n cao th? bit = 1
+      while(input(DHT11_PIN));     // đ?i v? th?p
+   }
+   return result;
+}
+
+void main(){
+   lcd_init();
+   output_low(LED_PIN);  // T?t đèn lúc đ?u (tùy m?ch LED c?a b?n logic m?c cao là t?t)
+   lcd_putc("\fDHT11 Ready...");
+   delay_ms(1000);
+
+   while(TRUE){
+      if(DHT11_Start()){
+         humidity = DHT11_Read();
+         DHT11_Read(); // b? ph?n th?p phân
+         temperature = DHT11_Read();
+         DHT11_Read(); // b? ph?n th?p phân
+         checksum = DHT11_Read();
+
+         if(checksum == (humidity + temperature)){
+            lcd_gotoxy(1,1);
+            printf(lcd_putc,"Humidity: %u%%",humidity);
+            lcd_gotoxy(1,2);
+            printf(lcd_putc,"Temp: %uC   ",temperature);
+
+            // Đi?u khi?n LED d?a vào nhi?t đ?
+            if(temperature < 20){
+               output_high(LED_PIN); // B?t đèn
+            } else {
+               output_low(LED_PIN); // T?t đèn
+            }
+         }
+         else{
+            lcd_gotoxy(1,1);
+            lcd_putc("Checksum Error ");
+            lcd_gotoxy(1,2);
+            lcd_putc("               ");
+         }
+      }
+      else{
+         lcd_gotoxy(1,1);
+         lcd_putc("DHT11 not resp");
+         lcd_gotoxy(1,2);
+         lcd_putc("               ");
+      }
+      delay_ms(1500);
+   }
+}
