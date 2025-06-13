@@ -1,0 +1,115 @@
+#include <16F877A.h>
+#fuses XT,NOWDT,NOPUT,NOBROWNOUT,NOLVP
+#use delay(clock=20000000)
+
+// LCD 4-bit mode
+#define LCD_ENABLE_PIN PIN_D2
+#define LCD_RS_PIN     PIN_D0
+#define LCD_RW_PIN     PIN_D1
+#define LCD_DATA4      PIN_D3
+#define LCD_DATA5      PIN_D4
+#define LCD_DATA6      PIN_D5
+#define LCD_DATA7      PIN_D6
+
+#include <lcd.c>
+
+// DHT11 và nút nh?n
+#define DHT11_PIN       PIN_B6
+#define BTN_UP_HIGH     PIN_B0
+#define BTN_DOWN_HIGH   PIN_B1
+#define BTN_UP_LOW      PIN_B2
+#define BTN_DOWN_LOW    PIN_B3
+
+unsigned int8 humidity, temperature, checksum;
+int8 temp_high_limit = 39;
+int8 temp_low_limit  = 36;
+
+// Kh?i đ?ng DHT11
+int1 DHT11_Start(){
+   output_low(DHT11_PIN);
+   delay_ms(20);
+   output_float(DHT11_PIN);
+   delay_us(40);
+
+   if(input(DHT11_PIN)) return 0;
+   delay_us(80);
+   if(!input(DHT11_PIN)) return 0;
+   delay_us(80);
+   return 1;
+}
+
+// Đ?c t?ng byte t? DHT11
+unsigned int8 DHT11_Read(){
+   unsigned int8 i, result=0;
+   for(i=0;i<8;i++){
+      while(!input(DHT11_PIN));
+      delay_us(30);
+      if(input(DHT11_PIN)) result |= (1<<(7-i));
+      while(input(DHT11_PIN));
+   }
+   return result;
+}
+
+// Đ?c nút và ch?nh gi?i h?n
+void check_buttons(){
+   if(!input(BTN_UP_HIGH)){
+      if(temp_high_limit < 50) temp_high_limit++;
+      delay_ms(150);
+   }
+   if(!input(BTN_DOWN_HIGH)){
+      if(temp_high_limit > 0) temp_high_limit--;
+      delay_ms(150);
+   }
+   if(!input(BTN_UP_LOW)){
+      if(temp_low_limit < 50) temp_low_limit++;
+      delay_ms(150);
+   }
+   if(!input(BTN_DOWN_LOW)){
+      if(temp_low_limit > 0) temp_low_limit--;
+      delay_ms(150);
+   }
+}
+
+// Hi?n th? nhi?t đ?, đ? ?m và gi?i h?n
+void display_data(){
+   lcd_gotoxy(1,1);
+   printf(lcd_putc,"Nhiet:%2uC Am:%2u%%  ", temperature, humidity);
+
+   lcd_gotoxy(1,2);
+   printf(lcd_putc,"Lo:%2uC Hi:%2uC  ", temp_low_limit, temp_high_limit);
+}
+
+void main(){
+   lcd_init();
+   lcd_putc("\f Khoi dong...");
+   delay_ms(1000);
+   lcd_putc("\f");
+
+   while(TRUE){
+      check_buttons();
+
+      if(DHT11_Start()){
+         humidity = DHT11_Read();
+         DHT11_Read(); // b? qua Humidity Decimal
+         temperature = DHT11_Read();
+         DHT11_Read(); // b? qua Temp Decimal
+         checksum = DHT11_Read();
+
+         if(checksum == (humidity + temperature)){
+            display_data();
+         }else{
+            lcd_gotoxy(1,1);
+            lcd_putc("Checksum Error ");
+            lcd_gotoxy(1,2);
+            lcd_putc("               ");
+         }
+      }else{
+         lcd_gotoxy(1,1);
+         lcd_putc("DHT11 not resp ");
+         lcd_gotoxy(1,2);
+         lcd_putc("               ");
+      }
+
+      delay_ms(500);
+   }
+}
