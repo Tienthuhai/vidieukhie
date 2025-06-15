@@ -1,0 +1,176 @@
+#include <16F877A.h>
+#fuses XT,NOWDT,NOPUT,NOBROWNOUT,NOLVP
+#use delay(clock=20000000)
+
+// LCD 4-bit mode
+#define LCD_ENABLE_PIN PIN_D2
+#define LCD_RS_PIN     PIN_D0
+#define LCD_RW_PIN     PIN_D1
+#define LCD_DATA4      PIN_D3
+#define LCD_DATA5      PIN_D4
+#define LCD_DATA6      PIN_D5
+#define LCD_DATA7      PIN_D6
+
+#include <lcd.c>
+
+// DHT11 và nút nh?n
+#define DHT11_PIN       PIN_B6
+#define BTN_UP_HIGH     PIN_B0
+#define BTN_DOWN_HIGH   PIN_B1
+#define BTN_UP_LOW      PIN_B2
+#define BTN_DOWN_LOW    PIN_B3
+
+// LED c?nh báo
+#define LED_PIN         PIN_C0
+#define LED_PIN2        PIN_C1
+
+// Relay qu?t
+#define FAN_RELAY_PIN   PIN_B4
+#define LAM_RELAY_PIN2   PIN_B5
+#define FAN_RELAY_PIN3   PIN_B7
+#define MPX_RELAY_PIN4   PIN_C2
+
+unsigned int8 humidity, temperature, checksum;
+int8 temp_high_limit = 39;
+int8 temp_low_limit  = 36;
+
+// Kh?i đ?ng DHT11
+int1 DHT11_Start(){
+   output_low(DHT11_PIN);
+   delay_ms(20);
+   output_float(DHT11_PIN);
+   delay_us(40);
+
+   if(input(DHT11_PIN)) return 0;
+   delay_us(80);
+   if(!input(DHT11_PIN)) return 0;
+   delay_us(80);
+   return 1;
+}
+
+// Đ?c t?ng byte t? DHT11
+unsigned int8 DHT11_Read(){
+   unsigned int8 i, result=0;
+   for(i=0;i<8;i++){
+      while(!input(DHT11_PIN));
+      delay_us(30);
+      if(input(DHT11_PIN)) result |= (1<<(7-i));
+      while(input(DHT11_PIN));
+   }
+   return result;
+}
+
+// Đ?c nút và ch?nh gi?i h?n
+void check_buttons(){
+   if(!input(BTN_UP_HIGH)){
+      if(temp_high_limit < 50) temp_high_limit++;
+      delay_ms(150);
+   }
+   if(!input(BTN_DOWN_HIGH)){
+      if(temp_high_limit > 0) temp_high_limit--;
+      delay_ms(150);
+   }
+   if(!input(BTN_UP_LOW)){
+      if(temp_low_limit < 50) temp_low_limit++;
+      delay_ms(150);
+   }
+   if(!input(BTN_DOWN_LOW)){
+      if(temp_low_limit > 0) temp_low_limit--;
+      delay_ms(150);
+   }
+}
+
+// Hi?n th? nhi?t đ?, đ? ?m và gi?i h?n
+void display_data(){
+   lcd_gotoxy(1,1);
+   printf(lcd_putc,"Nhiet:%2uC Am:%2u%%  ", temperature, humidity);
+
+   lcd_gotoxy(1,2);
+   printf(lcd_putc,"Lo:%2uC Hi:%2uC  ", temp_low_limit, temp_high_limit);
+}
+
+void main(){
+   lcd_init();
+   lcd_putc("\f Khoi dong...");
+   delay_ms(1000);
+   lcd_putc("\f");
+
+   // Thi?t l?p chân LED và Relay làm output, ban đ?u t?t
+   output_low(LED_PIN);
+   output_low(LED_PIN2);
+   output_low(FAN_RELAY_PIN);
+   output_low(LAM_RELAY_PIN2);
+   output_low(FAN_RELAY_PIN3);
+   output_low(MPX_RELAY_PIN4);
+   
+
+   while(TRUE){
+      check_buttons();
+
+      if(DHT11_Start()){
+         humidity = DHT11_Read();
+         DHT11_Read(); // b? qua Humidity Decimal
+         temperature = DHT11_Read();
+         DHT11_Read(); // b? qua Temp Decimal
+         checksum = DHT11_Read();
+
+         if(checksum == (humidity + temperature)){
+            display_data();
+            // C?nh báo LED khi vư?t ngư?ng
+            if(temperature > temp_high_limit || temperature < temp_low_limit){
+               output_high(LED_PIN);
+            }else{
+               output_low(LED_PIN);
+            }
+            if(humidity > 75 || humidity < 60){
+               output_high(LED_PIN2);
+            }else{
+               output_low(LED_PIN2);
+            }
+
+            // Đi?u khi?n relay qu?t
+            if(temperature >= temp_high_limit){
+               output_high(FAN_RELAY_PIN);  // B?t qu?t khi nhi?t đ? cao
+            }else if(temperature < temp_high_limit){
+               output_low(FAN_RELAY_PIN);   // T?t qu?t khi nhi?t đ? th?p
+            }
+             // Đi?u khi?n relay den
+            if(temperature >= temp_low_limit){
+               output_low(LAM_RELAY_PIN2);  // tat den khi nhi?t đ? cao
+            }else if(temperature < temp_low_limit){
+               output_high(LAM_RELAY_PIN2);   // bat den khi nhi?t đ? th?p
+            }
+            if(humidity >75){
+               output_high(FAN_RELAY_PIN3);  // B?t qu?t khi nhi?t đ? cao
+            }else if(humidity < 75){
+               output_low(FAN_RELAY_PIN3);   // T?t qu?t khi nhi?t đ? th?p
+            }
+            if(humidity >60){
+               output_low(MPX_RELAY_PIN4);  // tat quat khi do am du dieu kien
+            }else if(humidity < 60){
+               output_high(MPX_RELAY_PIN4);   // bat quat khi do am cao
+            }
+            
+            // N?u n?m gi?a hai ngư?ng th? gi? nguyên tr?ng thái hi?n t?i — ho?c b?n có th? thêm else ? đây n?u mu?n
+
+         }else{
+            lcd_gotoxy(1,1);
+            lcd_putc("Checksum Error ");
+            lcd_gotoxy(1,2);
+            lcd_putc("               ");
+            output_low(LED_PIN);
+            output_low(FAN_RELAY_PIN);
+         }
+
+      }else{
+         lcd_gotoxy(1,1);
+         lcd_putc("DHT11 not resp ");
+         lcd_gotoxy(1,2);
+         lcd_putc("               ");
+         output_low(LED_PIN);
+         output_low(FAN_RELAY_PIN);
+      }
+
+      delay_ms(500);
+   }
+}
